@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/pelican/wings/system"
 )
 
 func createTestClient(h http.HandlerFunc) (*client, *httptest.Server) {
@@ -30,6 +32,20 @@ func TestRequest(t *testing.T) {
 
 		rw.WriteHeader(http.StatusOK)
 	})
+	r, err := c.requestOnce(context.Background(), "", "/test", nil)
+	assert.NoError(t, err)
+	assert.NotNil(t, r)
+}
+
+func TestRequestFeaturesHeader(t *testing.T) {
+	c, _ := createTestClient(func(rw http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "container-ports", r.Header.Get("X-NextHost-Features"))
+
+		rw.WriteHeader(http.StatusOK)
+	})
+	// A custom header from config.yml cannot claim features the build does not have
+	c.customHeaders = map[string]string{system.FeaturesHeader: "something-else"}
+
 	r, err := c.requestOnce(context.Background(), "", "/test", nil)
 	assert.NoError(t, err)
 	assert.NotNil(t, r)

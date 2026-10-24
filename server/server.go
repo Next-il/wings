@@ -176,7 +176,10 @@ func DetermineServerTimezone(envvars map[string]interface{}, defaultTimezone str
 
 // parseInvocation parses the start command in the same way we already do in the entrypoint
 // We can use this to set the container command with all variables replaced.
-func parseInvocation(invocation string, envvars map[string]interface{}, memory int64, port int, ip string) (parsed string) {
+//
+// port is the default allocation's port inside the container (SERVER_PORT) and publicPort
+// the one clients connect to (SERVER_PUBLIC_PORT) - the same number unless NextHost maps it.
+func parseInvocation(invocation string, envvars map[string]interface{}, memory int64, port int, publicPort int, ip string) (parsed string) {
 	// Replace "{{" and "}}" with "${" and "}" respectively
 	invocation = strings.ReplaceAll(invocation, "{{", "${")
 	invocation = strings.ReplaceAll(invocation, "}}", "}")
@@ -213,6 +216,7 @@ func parseInvocation(invocation string, envvars map[string]interface{}, memory i
 	// just forces the client to disconnect and attempt to reconnect (rather than waiting
 	// on them to send a message and hit that disconnect logic).
 	invocation = strings.ReplaceAll(invocation, "${SERVER_PORT}", strconv.Itoa(port))
+	invocation = strings.ReplaceAll(invocation, "${SERVER_PUBLIC_PORT}", strconv.Itoa(publicPort))
 	invocation = strings.ReplaceAll(invocation, "${SERVER_MEMORY}", strconv.Itoa(int(memory)))
 	invocation = strings.ReplaceAll(invocation, "${SERVER_IP}", ip)
 
@@ -221,13 +225,23 @@ func parseInvocation(invocation string, envvars map[string]interface{}, memory i
 
 // Returns all of the environment variables that should be assigned to a running
 // server instance.
+//
+// SERVER_PORT is the port the server listens on inside the container: the default
+// allocation's container port when NextHost maps one, its own port otherwise.
+// SERVER_PUBLIC_PORT is always the default allocation's port as clients reach it, for a
+// server that has to advertise its address.
 func (s *Server) GetEnvironmentVariables() []string {
+	allocations := s.Config().Allocations
+	port := allocations.DefaultContainerPort()
+	publicPort := allocations.DefaultPublicPort()
+
 	out := []string{
 		fmt.Sprintf("TZ=%s", DetermineServerTimezone(s.Config().EnvVars, config.Get().System.Timezone)),
-		fmt.Sprintf("STARTUP=%s", parseInvocation(s.Config().Invocation, s.Config().EnvVars, s.MemoryLimit(), s.Config().Allocations.DefaultMapping.Port, s.Config().Allocations.DefaultMapping.Ip)),
+		fmt.Sprintf("STARTUP=%s", parseInvocation(s.Config().Invocation, s.Config().EnvVars, s.MemoryLimit(), port, publicPort, allocations.DefaultMapping.Ip)),
 		fmt.Sprintf("SERVER_MEMORY=%d", s.MemoryLimit()),
-		fmt.Sprintf("SERVER_IP=%s", s.Config().Allocations.DefaultMapping.Ip),
-		fmt.Sprintf("SERVER_PORT=%d", s.Config().Allocations.DefaultMapping.Port),
+		fmt.Sprintf("SERVER_IP=%s", allocations.DefaultMapping.Ip),
+		fmt.Sprintf("SERVER_PORT=%d", port),
+		fmt.Sprintf("SERVER_PUBLIC_PORT=%d", publicPort),
 	}
 
 eloop:
