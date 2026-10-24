@@ -54,6 +54,10 @@ func Configure(m *wserver.Manager, client remote.Client) *gin.Engine {
 	// accessible.
 	router.GET("/api/servers/:server/ws", middleware.ServerExists(), getServerWebsocket)
 
+	// NextHost: the staff shell. Authenticated by a JWT like the websocket above, of its own
+	// scope and permission (router_server_shell.go).
+	router.GET("/api/servers/:server/shell", middleware.ServerExists(), getServerShell)
+
 	// This request is called by another daemon when a server is going to be transferred out.
 	// This request does not need the AuthorizationMiddleware as the panel should never call it
 	// and requests are authenticated through a JWT the panel issues to the other daemon.

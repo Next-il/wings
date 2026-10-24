@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -39,7 +40,9 @@ func TestRequest(t *testing.T) {
 
 func TestRequestFeaturesHeader(t *testing.T) {
 	c, _ := createTestClient(func(rw http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "container-ports", r.Header.Get("X-NextHost-Features"))
+		// Every feature of this build, whatever else it adds later - port mapping among them
+		assert.Equal(t, strings.Join(system.Features, ","), r.Header.Get("X-NextHost-Features"))
+		assert.Contains(t, strings.Split(r.Header.Get("X-NextHost-Features"), ","), "container-ports")
 
 		rw.WriteHeader(http.StatusOK)
 	})

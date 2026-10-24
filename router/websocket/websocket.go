@@ -81,24 +81,26 @@ func NewTokenPayload(token []byte) (*tokens.WebsocketPayload, error) {
 	return &payload, nil
 }
 
+// CheckOrigin ensures that a websocket request is originating from the Panel itself, or
+// from an origin the configuration allows, and not some other location.
+func CheckOrigin(r *http.Request) bool {
+	o := r.Header.Get("Origin")
+	if o == config.Get().PanelLocation {
+		return true
+	}
+	for _, origin := range config.Get().AllowedOrigins {
+		if origin == "*" || origin == o {
+			return true
+		}
+	}
+	return false
+}
+
 // GetHandler returns a new websocket handler using the context provided.
 func GetHandler(s *server.Server, w http.ResponseWriter, r *http.Request, c *gin.Context) (*Handler, error) {
 	upgrader := websocket.Upgrader{
 		EnableCompression: true,
-		// Ensure that the websocket request is originating from the Panel itself,
-		// and not some other location.
-		CheckOrigin: func(r *http.Request) bool {
-			o := r.Header.Get("Origin")
-			if o == config.Get().PanelLocation {
-				return true
-			}
-			for _, origin := range config.Get().AllowedOrigins {
-				if origin == "*" || origin == o {
-					return true
-				}
-			}
-			return false
-		},
+		CheckOrigin:       CheckOrigin,
 	}
 
 	conn, err := upgrader.Upgrade(w, r, nil)

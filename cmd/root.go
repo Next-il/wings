@@ -36,6 +36,7 @@ import (
 	"github.com/pelican/wings/remote"
 	"github.com/pelican/wings/router"
 	"github.com/pelican/wings/server"
+	"github.com/pelican/wings/server/shell"
 	"github.com/pelican/wings/sftp"
 	"github.com/pelican/wings/system"
 )
@@ -329,6 +330,14 @@ func rootCmdRun(cmd *cobra.Command, _ []string) {
 		if err := sftp.New(manager).Run(); err != nil {
 			log.WithError(err).Fatal("failed to initialize the sftp server")
 			return
+		}
+	}()
+
+	go func() {
+		// NextHost: staff shells that were open when Wings last stopped are still running in
+		// their containers - no session survives a restart.
+		if n := shell.KillOrphans(); n > 0 {
+			log.WithField("subsystem", "shell").WithField("processes", n).Info("killed processes left behind by shell sessions of an earlier run")
 		}
 	}()
 
