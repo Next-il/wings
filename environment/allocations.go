@@ -9,12 +9,12 @@ import (
 	"github.com/pelican/wings/config"
 )
 
-
 // DefaultAllocationMapping defines the IP and port mapping for a server
 type DefaultAllocationMapping struct {
 	Ip   string `json:"ip"`
 	Port int    `json:"port"`
 }
+
 // Defines the allocations available for a given server. When using the Docker environment
 // driver these correspond to mappings for the container that allow external connections.
 type Allocations struct {
@@ -23,15 +23,55 @@ type Allocations struct {
 	// the DefaultMapping's IP. This is important to servers which rely on external
 	// services that check the IP of the server (Source Engine servers, for example).
 	ForceOutgoingIP bool `json:"force_outgoing_ip"`
-	
+
 	// Defines the default allocation that should be used for this server. This is
 	// what will be used for {SERVER_IP} and {SERVER_PORT} when modifying configuration
-	// files or the startup arguments for a server.
+	// files or the startup arguments for a server. Its port is the public one: when
+	// ContainerPorts maps it, {SERVER_PORT} is the container port and the public port is
+	// {SERVER_PUBLIC_PORT}.
 	DefaultMapping *DefaultAllocationMapping `json:"default"`
 
 	// Mappings contains all the ports that should be assigned to a given server
 	// attached to the IP they correspond to.
 	Mappings map[string][]int `json:"mappings"`
+
+	// ContainerPorts is a NextHost addition: for an allocation in Mappings, the port
+	// inside the container its traffic goes to, keyed by IP and then by the allocation's
+	// (public) port. An allocation without an entry keeps the same port number inside the
+	// container, so a remote that does not send this field gets the upstream behaviour,
+	// and upstream Wings ignores the field.
+	//
+	//	"container_ports": {"10.0.0.1": {"43666": 3306}}
+	ContainerPorts map[string]map[int]int `json:"container_ports,omitempty"`
+}
+
+// ContainerPort returns the port inside the container that the allocation at the given
+// IP and port is bound to: its ContainerPorts entry, or the same port when it has no
+// valid one.
+func (a *Allocations) ContainerPort(ip string, port int) int {
+	if p, ok := a.ContainerPorts[ip][port]; ok && p >= 1 && p <= 65535 {
+		return p
+	}
+	return port
+}
+
+// DefaultContainerPort returns the port inside the container of the default allocation,
+// which is what the server listens on and what SERVER_PORT is set to. Zero when the
+// server has no allocation.
+func (a *Allocations) DefaultContainerPort() int {
+	if a.DefaultMapping == nil {
+		return 0
+	}
+	return a.ContainerPort(a.DefaultMapping.Ip, a.DefaultMapping.Port)
+}
+
+// DefaultPublicPort returns the port of the default allocation as clients connect to it,
+// which is what SERVER_PUBLIC_PORT is set to. Zero when the server has no allocation.
+func (a *Allocations) DefaultPublicPort() int {
+	if a.DefaultMapping == nil {
+		return 0
+	}
+	return a.DefaultMapping.Port
 }
 
 // Converts the server allocation mappings into a format that can be understood by Docker. While
@@ -54,8 +94,11 @@ func (a *Allocations) Bindings() nat.PortMap {
 				HostPort: strconv.Itoa(port),
 			}
 
-			tcp := nat.Port(fmt.Sprintf("%d/tcp", port))
-			udp := nat.Port(fmt.Sprintf("%d/udp", port))
+			// The host side is always the allocation itself; the container side is where
+			// NextHost asked for its traffic to go, the same port when it did not say.
+			containerPort := a.ContainerPort(ip, port)
+			tcp := nat.Port(fmt.Sprintf("%d/tcp", containerPort))
+			udp := nat.Port(fmt.Sprintf("%d/udp", containerPort))
 
 			out[tcp] = append(out[tcp], binding)
 			out[udp] = append(out[udp], binding)
