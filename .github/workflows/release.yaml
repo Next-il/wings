@@ -1,5 +1,8 @@
 name: Release
 
+# A tag like v1.0.0-rc.1.nh.1 builds both Linux binaries and publishes them, with their SHA-256 sums, as a
+# GitHub release. The node agent installs a release by its tag and checks the sum before swapping the binary.
+
 on:
   push:
     tags:
@@ -11,63 +14,57 @@ jobs:
     runs-on: ubuntu-22.04
     permissions:
       contents: write
-      packages: write
 
     steps:
-      - name: Code Checkout
+      - name: Code checkout
         uses: actions/checkout@v6
 
       - name: Setup Go
         uses: actions/setup-go@v6
         with:
-          go-version: "1.26.8"
+          go-version-file: go.mod
+
+      - name: Test
+        env:
+          CGO_ENABLED: 0
+        run: go test ./...
 
       - name: Build release binaries
         env:
           CGO_ENABLED: 0
-          REF: ${{ github.ref }}
+          TAG: ${{ github.ref_name }}
         run: |
-          GOARCH=amd64 go build -o dist/wings_linux_amd64 -v -trimpath -ldflags="-s -w -X github.com/pelican/wings/system.Version=${REF:11}" github.com/pelican/wings
-          chmod 755 dist/wings_linux_amd64
-          GOARCH=arm64 go build -o dist/wings_linux_arm64 -v -trimpath -ldflags="-s -w -X github.com/pelican/wings/system.Version=${REF:11}" github.com/pelican/wings
-          chmod 755 dist/wings_linux_arm64
+          VERSION="${TAG#v}"
+          for ARCH in amd64 arm64; do
+            GOOS=linux GOARCH=$ARCH go build -o dist/wings_linux_$ARCH -v -trimpath \
+              -ldflags="-s -w -X github.com/pelican/wings/system.Version=${VERSION}" github.com/pelican/wings
+          done
+          chmod 755 dist/*
 
-      - name: Extract changelog
+      - name: Checksums and release notes
         env:
-          REF: ${{ github.ref }}
+          TAG: ${{ github.ref_name }}
         run: |
-          sed -n "/^## ${REF:10}/,/^## /{/^## /b;p}" CHANGELOG.md > ./RELEASE_CHANGELOG
-
-      - name: Create checksum and add to changelog
-        run: |
-          SUM=`cd dist && sha256sum wings_linux_amd64`
-          SUM2=`cd dist && sha256sum wings_linux_arm64`
-          echo -e "\n#### SHA256 Checksum\n\`\`\`\n$SUM\n$SUM2\n\`\`\`\n" >> ./RELEASE_CHANGELOG
-          echo -e "$SUM\n$SUM2" > checksums.txt
-
-      - name: Create release branch
-        env:
-          REF: ${{ github.ref }}
-        run: |
-          BRANCH=release/${REF:10}
-          git config --local user.email "github-actions[bot]@users.noreply.github.com"
-          git config --local user.name "github-actions[bot]"
-          git checkout -b ${BRANCH}
-          git push -u origin ${BRANCH}
-          sed -i "s/var Version = \".*\"/var Version = \"${REF:11}\"/" system/const.go
-          git add system/const.go
-          git commit -m "bump version for release"
-          git push
+          (cd dist && sha256sum wings_linux_amd64 wings_linux_arm64) > checksums.txt
+          # This release's section of CHANGELOG-NEXTHOST.md, then the upstream base and the sums
+          awk -v heading="## ${TAG}" '$0 == heading { on = 1; next } /^## / { on = 0 } on' CHANGELOG-NEXTHOST.md > RELEASE_NOTES.md
+          {
+            echo ""
+            echo "Upstream base: $(sed -n 's/^Base: //p' UPSTREAM.md)"
+            echo ""
+            echo '#### SHA256'
+            echo '```'
+            cat checksums.txt
+            echo '```'
+          } >> RELEASE_NOTES.md
 
       - name: Create release
-        id: create_release
         uses: softprops/action-gh-release@v3
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          draft: true
-          prerelease: ${{ contains(github.ref, 'rc') || contains(github.ref, 'beta') || contains(github.ref, 'alpha') }}
-          body_path: ./RELEASE_CHANGELOG
+          name: ${{ github.ref_name }}
+          body_path: RELEASE_NOTES.md
+          prerelease: false
           files: |
-            dist/*
+            dist/wings_linux_amd64
+            dist/wings_linux_arm64
             checksums.txt

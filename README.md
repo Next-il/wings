@@ -1,3 +1,23 @@
+# NextHost Wings
+
+The daemon that runs game and database servers on NextHost's nodes. It started from
+[Pelican Wings](https://github.com/pelican-dev/wings) v1.0.0-rc.1 and is maintained here as NextHost's own
+project: our features go straight into this code, and upstream changes are reviewed and ported by hand
+(see [UPSTREAM.md](UPSTREAM.md)).
+
+- **Remote API:** answered by NextHost (`https://api.next-il.co.il/servers/wings`), not a Pelican panel.
+  `config.yml` and the remote API stay compatible with Pelican's, so a node switches builds without other changes.
+- **Releases:** a `v<upstream base>.nh.<n>` tag builds Linux amd64 and arm64 binaries with SHA-256 sums
+  (`.github/workflows/release.yaml`). The NextHost node agent installs the version NextHost pins.
+- **Changes on top of upstream:** [CHANGELOG-NEXTHOST.md](CHANGELOG-NEXTHOST.md).
+- **License:** MIT, as upstream - the original copyright notice in [LICENSE](LICENSE) stays.
+
+Build locally: `CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o wings_linux_amd64 .` - tests: `go test ./...`
+
+---
+
+What follows is upstream's README.
+
 # Pelican Wings
 
 Wings is Pelican's server control plane, built for the rapidly changing gaming industry and designed to be
