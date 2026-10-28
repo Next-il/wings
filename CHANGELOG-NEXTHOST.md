@@ -2,7 +2,7 @@
 
 Changes on top of the upstream base named in UPSTREAM.md. Each section is the body of its GitHub release.
 
-## v1.0.0-rc.1.nh.4 (unreleased)
+## v1.0.0-rc.1.nh.4
 
 - **App servers:** a server can run an application image - one NextHost built on the node from the
   customer's Dockerfile, or pulled from a registry - the way Docker runs it anywhere else. NextHost sends:
