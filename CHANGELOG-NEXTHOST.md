@@ -19,11 +19,11 @@ Changes on top of the upstream base named in UPSTREAM.md. Each section is the bo
   - A domain that is not a plain lowercase hostname (letters, digits, hyphens, dots; no wildcard) or a port
     outside 1-65535 is dropped with a warning; it never fails the start. A server's own `labels` cannot set
     anything under `traefik.` - Wings removes those, so one server cannot route another's domain.
-- **The proxy:** a `proxy` section in config.yml, off unless enabled:
+- **The proxy:** a `proxy` section in config.yml, on unless turned off:
 
   ```yaml
   proxy:
-    enabled: false
+    enabled: true
     image: traefik:v3.7.15
     container_name: nexthost-proxy
     http_port: 80
@@ -38,6 +38,9 @@ Changes on top of the upstream base named in UPSTREAM.md. Each section is the bo
     redirected to HTTPS, one Let's Encrypt resolver `le` (HTTP challenge on port 80), the Docker socket
     mounted read-only, no dashboard or API. A changed setting recreates it; turned off, an existing one is
     left alone.
+  - When something else holds port 80 or 443 (nginx left by a `certbot --nginx` install), the container
+    does not start: Wings logs it and runs on. The NextHost Doctor's "Domain proxy" check names what holds
+    the port, and its fix takes nginx off and starts the proxy.
   - Port 80 is the proxy's now: a node that renews Wings' own certificate with `certbot --standalone` has to
     stop the proxy container around renewals. The NextHost agent installs certbot pre and post hooks for that.
 - `GET /api/system` reports `proxy`: `{ "enabled": bool, "running": bool, "image": string }`.

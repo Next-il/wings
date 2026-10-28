@@ -2,11 +2,12 @@ package config
 
 // ProxyConfiguration is NextHost's domain proxy: Traefik in a container Wings keeps running, which
 // routes the customers' domains of a server (its "domains" setting) to that server's container over
-// the Wings Docker network, with Let's Encrypt certificates. Off unless enabled.
+// the Wings Docker network, with Let's Encrypt certificates. On unless config.yml turns it off.
 type ProxyConfiguration struct {
 	// Enabled makes Wings create and keep the proxy container running, and label server containers
-	// for it. Turning it off leaves an existing proxy container alone.
-	Enabled bool `default:"false" json:"enabled" yaml:"enabled"`
+	// for it. Turning it off leaves an existing proxy container alone. When ports 80 or 443 are taken
+	// by something else on the node, the proxy does not start and Wings runs on without it.
+	Enabled bool `default:"true" json:"enabled" yaml:"enabled"`
 
 	// Image is the Traefik image, pinned to an exact v3 release.
 	Image string `default:"traefik:v3.7.15" json:"image" yaml:"image"`

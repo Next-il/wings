@@ -7,6 +7,7 @@ import (
 	"github.com/creasty/defaults"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/mount"
+	"gopkg.in/yaml.v2"
 
 	"github.com/pelican/wings/config"
 )
@@ -20,9 +21,36 @@ func defaultConfig(t *testing.T) config.ProxyConfiguration {
 	return cfg
 }
 
+// On when config.yml has no proxy section (every node that upgrades), off only when it says so
+func TestEnabledFromConfigFile(t *testing.T) {
+	for _, tc := range []struct {
+		yaml string
+		want bool
+	}{
+		{"debug: false\n", true},
+		{"proxy:\n  acme_email: ops@example.com\n", true},
+		{"proxy:\n  enabled: false\n", false},
+		{"proxy:\n  enabled: true\n", true},
+	} {
+		c, err := config.NewAtPath("/tmp/config.yml")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := yaml.Unmarshal([]byte(tc.yaml), c); err != nil {
+			t.Fatal(err)
+		}
+		if c.Proxy.Enabled != tc.want {
+			t.Errorf("%q: enabled = %v, want %v", tc.yaml, c.Proxy.Enabled, tc.want)
+		}
+		if c.Proxy.Image != "traefik:v3.7.15" {
+			t.Errorf("%q: the image default is lost: %q", tc.yaml, c.Proxy.Image)
+		}
+	}
+}
+
 func TestDefaults(t *testing.T) {
 	cfg := defaultConfig(t)
-	if cfg.Enabled || cfg.Image != "traefik:v3.7.15" || cfg.ContainerName != "nexthost-proxy" ||
+	if !cfg.Enabled || cfg.Image != "traefik:v3.7.15" || cfg.ContainerName != "nexthost-proxy" ||
 		cfg.HTTPPort != 80 || cfg.HTTPSPort != 443 || cfg.DataDir != "/var/lib/pelican/proxy" || cfg.AcmeEmail != "" {
 		t.Fatalf("unexpected defaults: %+v", cfg)
 	}
