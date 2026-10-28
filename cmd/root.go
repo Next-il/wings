@@ -33,6 +33,7 @@ import (
 	"github.com/pelican/wings/internal/cron"
 	"github.com/pelican/wings/internal/database"
 	"github.com/pelican/wings/loggers/cli"
+	"github.com/pelican/wings/proxy"
 	"github.com/pelican/wings/remote"
 	"github.com/pelican/wings/router"
 	"github.com/pelican/wings/server"
@@ -192,6 +193,11 @@ func rootCmdRun(cmd *cobra.Command, _ []string) {
 	if err := environment.ConfigureDocker(cmd.Context()); err != nil {
 		log.WithField("error", err).Fatal("failed to configure docker environment")
 		return
+	}
+
+	// NextHost: the domain proxy, on the network just made sure of. A failure leaves the servers be
+	if err := proxy.Ensure(cmd.Context()); err != nil {
+		log.WithField("error", err).Error("failed to start the domain proxy")
 	}
 
 	if err := config.WriteToDisk(config.Get()); err != nil {

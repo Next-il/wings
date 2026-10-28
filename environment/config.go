@@ -9,6 +9,8 @@ type Settings struct {
 	Allocations Allocations
 	Limits      Limits
 	Labels      map[string]string
+	// Domains is a NextHost addition (see Domain).
+	Domains []Domain
 }
 
 // Defines the actual configuration struct for the environment with all of the settings
@@ -75,6 +77,14 @@ func (c *Configuration) Labels() map[string]string {
 	defer c.mu.RUnlock()
 
 	return c.settings.Labels
+}
+
+// Domains returns the customer domains the node's proxy routes to this instance.
+func (c *Configuration) Domains() []Domain {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.settings.Domains
 }
 
 // Returns the environment variables associated with this instance.

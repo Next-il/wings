@@ -75,6 +75,10 @@ type Configuration struct {
 	// Labels is a map of container labels that should be applied to the running server process.
 	Labels map[string]string `json:"labels"`
 
+	// Domains is a NextHost addition: the customer domains the node's proxy routes to the
+	// container (environment.Domain).
+	Domains []environment.Domain `json:"domains,omitempty"`
+
 	Allocations           environment.Allocations `json:"allocations"`
 	Build                 environment.Limits      `json:"build"`
 	CrashDetectionEnabled bool                    `json:"crash_detection_enabled"`
