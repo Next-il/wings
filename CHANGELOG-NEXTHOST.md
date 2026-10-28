@@ -2,6 +2,50 @@
 
 Changes on top of the upstream base named in UPSTREAM.md. Each section is the body of its GitHub release.
 
+## v1.0.0-rc.1.nh.3 (unreleased)
+
+- **Custom domains:** a customer's web app in a server (a Next.js app on port 3000 inside, say) is reached
+  at `https://app.example.com` with no port. The customer points an A record at the node; NextHost checks it
+  and only then sends the domain in the server configuration:
+
+  ```json
+  "domains": [{ "domain": "app.example.com", "port": 3000 }]
+  ```
+
+  - `port` is the port the app listens on inside the container. The app must listen on `0.0.0.0`.
+  - With the proxy enabled, Wings labels the server's container for Traefik when it creates it (the next
+    start, like the port mapping): router and service `nh-<first 8 of the server uuid>-<n>`, rule
+    `Host(\`<domain>\`)`, entrypoint `websecure`, certificate resolver `le`, over the Wings network.
+  - A domain that is not a plain lowercase hostname (letters, digits, hyphens, dots; no wildcard) or a port
+    outside 1-65535 is dropped with a warning; it never fails the start. A server's own `labels` cannot set
+    anything under `traefik.` - Wings removes those, so one server cannot route another's domain.
+- **The proxy:** a `proxy` section in config.yml, on unless turned off:
+
+  ```yaml
+  proxy:
+    enabled: true
+    image: traefik:v3.7.15
+    container_name: nexthost-proxy
+    http_port: 80
+    https_port: 443
+    acme_email: ""
+    data_dir: /var/lib/pelican/proxy   # acme.json
+  ```
+
+  - Enabled, Wings creates the `nexthost-proxy` container at boot through its own Docker client and keeps it
+    running (`unless-stopped`, so it outlives Wings restarts): Traefik with the Docker provider (only
+    containers that opt in), on the Wings network, ports 80 and 443 on every interface, plain HTTP
+    redirected to HTTPS, one Let's Encrypt resolver `le` (HTTP challenge on port 80), the Docker socket
+    mounted read-only, no dashboard or API. A changed setting recreates it; turned off, an existing one is
+    left alone.
+  - When something else holds port 80 or 443 (nginx left by a `certbot --nginx` install), the container
+    does not start: Wings logs it and runs on. The NextHost Doctor's "Domain proxy" check names what holds
+    the port, and its fix takes nginx off and starts the proxy.
+  - Port 80 is the proxy's now: a node that renews Wings' own certificate with `certbot --standalone` has to
+    stop the proxy container around renewals. The NextHost agent installs certbot pre and post hooks for that.
+- `GET /api/system` reports `proxy`: `{ "enabled": bool, "running": bool, "image": string }`.
+- `domains` added to the features list (header and `/api/system`).
+
 ## v1.0.0-rc.1.nh.2
 
 - **Port mapping:** a server's allocation can point at another port inside the container, so a database or

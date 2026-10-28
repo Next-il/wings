@@ -401,6 +401,9 @@ type Configuration struct {
 
 	// IgnorePanelConfigUpdates causes confiuration updates that are sent by the panel to be ignored.
 	IgnorePanelConfigUpdates bool `json:"ignore_panel_config_updates" yaml:"ignore_panel_config_updates"`
+
+	// Proxy is NextHost's domain proxy (see ProxyConfiguration).
+	Proxy ProxyConfiguration `json:"proxy" yaml:"proxy"`
 }
 
 // SearchRecursion holds the configuration for directory search recursion settings.

@@ -13,6 +13,7 @@ import (
 
 	"github.com/pelican/wings/config"
 	"github.com/pelican/wings/internal/diagnostics"
+	"github.com/pelican/wings/proxy"
 	"github.com/pelican/wings/router/middleware"
 	"github.com/pelican/wings/router/tokens"
 	"github.com/pelican/wings/server"
@@ -34,12 +35,13 @@ func getSystemInformation(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, struct {
-		Architecture  string   `json:"architecture"`
-		CPUCount      int      `json:"cpu_count"`
-		KernelVersion string   `json:"kernel_version"`
-		OS            string   `json:"os"`
-		Version       string   `json:"version"`
-		Features      []string `json:"features"`
+		Architecture  string       `json:"architecture"`
+		CPUCount      int          `json:"cpu_count"`
+		KernelVersion string       `json:"kernel_version"`
+		OS            string       `json:"os"`
+		Version       string       `json:"version"`
+		Features      []string     `json:"features"`
+		Proxy         proxy.Status `json:"proxy"`
 	}{
 		Architecture:  i.System.Architecture,
 		CPUCount:      i.System.CPUThreads,
@@ -47,6 +49,7 @@ func getSystemInformation(c *gin.Context) {
 		OS:            i.System.OSType,
 		Version:       i.Version,
 		Features:      i.Features,
+		Proxy:         proxy.State(c.Request.Context()),
 	})
 }
 func getDiagnostics(c *gin.Context) {
