@@ -79,6 +79,9 @@ type Configuration struct {
 	// container (environment.Domain).
 	Domains []environment.Domain `json:"domains,omitempty"`
 
+	// App is a NextHost addition: the server runs an application image (environment.App).
+	App *environment.App `json:"app,omitempty"`
+
 	Allocations           environment.Allocations `json:"allocations"`
 	Build                 environment.Limits      `json:"build"`
 	CrashDetectionEnabled bool                    `json:"crash_detection_enabled"`

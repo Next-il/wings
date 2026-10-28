@@ -21,16 +21,23 @@ type Mount environment.Mount
 // that approach to just setting `TZ=Timezone` environment values in containers which should work
 // in most scenarios.
 func (s *Server) Mounts() []environment.Mount {
+	// NextHost: an app keeps its folder where it asks for it, and its image's own /etc/passwd
+	app := s.Config().App
+	target := "/home/container"
+	if app.IsEnabled() {
+		target = app.MountPath()
+	}
+
 	m := []environment.Mount{
 		{
 			Default:  true,
-			Target:   "/home/container",
+			Target:   target,
 			Source:   s.Filesystem().Path(),
 			ReadOnly: false,
 		},
 	}
 
-	if config.Get().System.User.Passwd.Enable {
+	if config.Get().System.User.Passwd.Enable && !app.IsEnabled() {
 		passwdMount := environment.Mount{
 			Target:   "/etc/passwd",
 			Source:   filepath.Join(config.Get().System.User.Passwd.Directory, "passwd"),

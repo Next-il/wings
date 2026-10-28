@@ -2,6 +2,30 @@
 
 Changes on top of the upstream base named in UPSTREAM.md. Each section is the body of its GitHub release.
 
+## v1.0.0-rc.1.nh.4 (unreleased)
+
+- **App servers:** a server can run an application image - one NextHost built on the node from the
+  customer's Dockerfile, or pulled from a registry - the way Docker runs it anywhere else. NextHost sends:
+
+  ```json
+  "app": { "enabled": true, "data_path": "/data" }
+  ```
+
+  - The process runs as the image's own user, not Wings' user.
+  - The root filesystem is writable. The container is recreated on every start, so it is the app's scratch
+    space; what it keeps goes in the server's folder.
+  - The server's folder is mounted at `data_path` (default `/data`; never over a system folder) instead of
+    `/home/container`, and the image keeps its own `/etc/passwd` and `/etc/group`.
+  - Docker's default capabilities without `setpcap`, `mknod`, `audit_write`, `net_raw`, `setfcap`,
+    `sys_chroot`, `sys_ptrace` - so an entrypoint that chowns its files or switches user works, and so does
+    an app listening on a port under 1024 inside.
+  - The folder is not chowned to Wings' user before a start (its files belong to the image's user) and is
+    opened to that user (0777; only this server's container mounts it).
+  - Unchanged: no-new-privileges, resource limits, network, port mappings, domains. A locally built image is
+    named with Wings' existing `~` prefix (`~nexthost-app/<server>:<commit>`), so it is never pulled.
+- A server whose egg has no startup "done" lines is marked running as soon as its container starts, instead of
+  staying "starting" until it stops.
+
 ## v1.0.0-rc.1.nh.3
 
 - **Custom domains:** a customer's web app in a server (a Next.js app on port 3000 inside, say) is reached

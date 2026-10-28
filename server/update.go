@@ -30,6 +30,7 @@ func (s *Server) SyncWithEnvironment() {
 		Limits:      cfg.Build,
 		Labels:      cfg.Labels,
 		Domains:     cfg.Domains,
+		App:         cfg.App,
 	})
 
 	// For Docker specific environments we also want to update the configured image

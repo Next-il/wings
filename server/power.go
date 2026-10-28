@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 
 	"emperror.dev/errors"
@@ -132,7 +133,7 @@ func (s *Server) HandlePowerAction(action PowerAction, waitSeconds ...int) error
 			return err
 		}
 
-		return s.Environment.Start(s.Context())
+		return s.startEnvironment()
 	case PowerActionStop:
 		fallthrough
 	case PowerActionRestart:
@@ -159,7 +160,7 @@ func (s *Server) HandlePowerAction(action PowerAction, waitSeconds ...int) error
 			return err
 		}
 
-		return s.Environment.Start(s.Context())
+		return s.startEnvironment()
 	case PowerActionTerminate:
 		return s.Environment.Terminate(s.Context(), "SIGKILL")
 	}
@@ -220,7 +221,13 @@ func (s *Server) onBeforeStart() error {
 	s.UpdateConfigurationFiles()
 	s.Log().Debug("updated server configuration files")
 
-	if config.Get().System.CheckPermissionsOnBoot {
+	// NextHost: an app's files belong to whichever user its image runs as - not chowned to Wings',
+	// and its folder open to that user (only this server's container mounts it)
+	if s.Config().App.IsEnabled() {
+		if err := os.Chmod(s.Filesystem().Path(), 0o777); err != nil {
+			return errors.WithMessage(err, "failed to open the app's folder to its image user")
+		}
+	} else if config.Get().System.CheckPermissionsOnBoot {
 		s.PublishConsoleOutputFromDaemon("Ensuring file permissions are set correctly, this could take a few seconds...")
 		// Ensure all the server file permissions are set correctly before booting the process.
 		s.Log().Debug("chowning server root directory...")
@@ -237,5 +244,18 @@ func (s *Server) onBeforeStart() error {
 	}
 
 	s.Log().Info("completed server preflight, starting boot process...")
+	return nil
+}
+
+// startEnvironment starts the server's process. NextHost: a server with no startup "done" lines (an
+// app prints whatever it prints) counts as running once its container has started, instead of
+// staying "starting" until it stops.
+func (s *Server) startEnvironment() error {
+	if err := s.Environment.Start(s.Context()); err != nil {
+		return err
+	}
+	if len(s.ProcessConfiguration().Startup.Done) == 0 && s.Environment.State() == environment.ProcessStartingState {
+		s.Environment.SetState(environment.ProcessRunningState)
+	}
 	return nil
 }
