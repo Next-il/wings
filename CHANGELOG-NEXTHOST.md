@@ -2,7 +2,7 @@
 
 Changes on top of the upstream base named in UPSTREAM.md. Each section is the body of its GitHub release.
 
-## v1.0.0-rc.1.nh.3 (unreleased)
+## v1.0.0-rc.1.nh.3
 
 - **Custom domains:** a customer's web app in a server (a Next.js app on port 3000 inside, say) is reached
   at `https://app.example.com` with no port. The customer points an A record at the node; NextHost checks it
