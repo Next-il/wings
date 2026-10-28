@@ -11,6 +11,8 @@ type Settings struct {
 	Labels      map[string]string
 	// Domains is a NextHost addition (see Domain).
 	Domains []Domain
+	// App is a NextHost addition (see App): nil for a server that is not an app.
+	App *App
 }
 
 // Defines the actual configuration struct for the environment with all of the settings
@@ -77,6 +79,14 @@ func (c *Configuration) Labels() map[string]string {
 	defer c.mu.RUnlock()
 
 	return c.settings.Labels
+}
+
+// App returns the server's app settings, nil when it is not an app.
+func (c *Configuration) App() *App {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.settings.App
 }
 
 // Domains returns the customer domains the node's proxy routes to this instance.

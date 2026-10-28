@@ -205,7 +205,11 @@ func (e *Environment) Create() error {
 	}
 
 	// Set the user running the container properly depending on what mode we are operating in.
-	if cfg.System.User.Rootless.Enabled {
+	// NextHost: an app runs as its image's own user (environment.App).
+	app := e.Configuration.App()
+	if app.IsEnabled() {
+		conf.User = ""
+	} else if cfg.System.User.Rootless.Enabled {
 		conf.User = fmt.Sprintf("%d:%d", cfg.System.User.Rootless.ContainerUID, cfg.System.User.Rootless.ContainerGID)
 	} else {
 		conf.User = strconv.Itoa(cfg.System.User.Uid) + ":" + strconv.Itoa(cfg.System.User.Gid)
@@ -272,14 +276,10 @@ func (e *Environment) Create() error {
 		LogConfig: cfg.Docker.ContainerLogConfig(),
 
 		SecurityOpt:    []string{"no-new-privileges"},
-		ReadonlyRootfs: true,
-		CapDrop: []string{
-			"setpcap", "mknod", "audit_write", "net_raw", "dac_override",
-			"fowner", "fsetid", "net_bind_service", "sys_chroot", "setfcap",
-			"sys_ptrace",
-		},
-		NetworkMode: networkMode,
-		UsernsMode:  container.UsernsMode(cfg.Docker.UsernsMode),
+		ReadonlyRootfs: !app.IsEnabled(),
+		CapDrop:        capDrop(app),
+		NetworkMode:    networkMode,
+		UsernsMode:     container.UsernsMode(cfg.Docker.UsernsMode),
 	}
 
 	var netConf *network.NetworkingConfig = nil //In case when no networking config is needed set nil
@@ -485,4 +485,17 @@ func (e *Environment) convertMounts() []mount.Mount {
 		}
 	}
 	return out
+}
+
+// capDrop is what a server's container drops from Docker's default capabilities: everything that a
+// game needs none of, and for an app (environment.App) only what matters for breaking out or spoofing.
+func capDrop(app *environment.App) []string {
+	if app.IsEnabled() {
+		return environment.AppCapDrop
+	}
+	return []string{
+		"setpcap", "mknod", "audit_write", "net_raw", "dac_override",
+		"fowner", "fsetid", "net_bind_service", "sys_chroot", "setfcap",
+		"sys_ptrace",
+	}
 }
