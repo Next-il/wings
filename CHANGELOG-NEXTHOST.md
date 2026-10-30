@@ -2,6 +2,14 @@
 
 Changes on top of the upstream base named in UPSTREAM.md. Each section is the body of its GitHub release.
 
+## v1.0.0-rc.1.nh.6 (unreleased)
+
+- **The proxy starts:** its container asked for Docker's `local` log driver with one log file and
+  compression left on (the driver's default), which Docker refuses: the container could never start
+  (`compression cannot be enabled when max file count is 1`). Compression is off now, like Wings' own
+  containers, and the log settings are part of the container's settings hash, so a node that upgrades
+  recreates the old container once and starts it.
+
 ## v1.0.0-rc.1.nh.5
 
 - **Domain routes from files, applied live:** Wings no longer labels a server's container for Traefik.

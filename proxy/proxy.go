@@ -64,6 +64,10 @@ func Args(cfg config.ProxyConfiguration, networkName string) []string {
 	return args
 }
 
+// logConfig is the proxy's log: one file of 5 MB. The local driver compresses rotated files unless
+// told not to, and Docker refuses to start a container that asks for compression with one file.
+var logConfig = container.LogConfig{Type: "local", Config: map[string]string{"max-size": "5m", "max-file": "1", "compress": "false"}}
+
 // BuildSpec is the container the configuration asks for. Pure, so it can be tested without Docker.
 func BuildSpec(cfg config.ProxyConfiguration, networkName string) Spec {
 	args := Args(cfg, networkName)
@@ -84,7 +88,8 @@ func BuildSpec(cfg config.ProxyConfiguration, networkName string) Spec {
 		DataDir   string
 		Network   string
 		Mounts    []mount.Mount
-	}{cfg.Image, args, cfg.HTTPPort, cfg.HTTPSPort, cfg.DataDir, networkName, mounts})
+		Log       container.LogConfig
+	}{cfg.Image, args, cfg.HTTPPort, cfg.HTTPSPort, cfg.DataDir, networkName, mounts, logConfig})
 	hash := hex.EncodeToString(sum.Sum(nil))[:16]
 
 	return Spec{
@@ -107,7 +112,7 @@ func BuildSpec(cfg config.ProxyConfiguration, networkName string) Spec {
 			},
 			Mounts:        mounts,
 			RestartPolicy: container.RestartPolicy{Name: container.RestartPolicyUnlessStopped},
-			LogConfig:     container.LogConfig{Type: "local", Config: map[string]string{"max-size": "5m", "max-file": "1"}},
+			LogConfig:     logConfig,
 			NetworkMode:   container.NetworkMode(networkName),
 		},
 		Network: &network.NetworkingConfig{

@@ -123,6 +123,10 @@ func TestBuildSpec(t *testing.T) {
 	if spec.Config.Labels[SpecLabel] != spec.Hash || spec.Hash == "" {
 		t.Errorf("spec label %v", spec.Config.Labels)
 	}
+	// The local driver compresses by default, and Docker will not start one file with compression
+	if log := spec.Host.LogConfig; log.Type != "local" || log.Config["compress"] != "false" || log.Config["max-file"] != "1" {
+		t.Errorf("log config %+v", log)
+	}
 }
 
 func TestSpecHashFollowsTheSettings(t *testing.T) {
