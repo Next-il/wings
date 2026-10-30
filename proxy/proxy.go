@@ -1,8 +1,8 @@
 // Package proxy runs NextHost's domain proxy: Traefik in a container next to the servers, on the
 // Wings Docker network, routing each customer domain to its server's container (see
-// environment.Domain and config.ProxyConfiguration). Wings creates it and keeps it running; Traefik
-// finds the routes itself from the server containers' labels, so nothing is reloaded when a server
-// starts or stops.
+// environment.Domain and config.ProxyConfiguration). Wings creates it and keeps it running, and
+// writes the routes as files Traefik watches (routes.go). Traefik also still reads the labels of
+// containers created before routes came from files, until those are recreated.
 package proxy
 
 import (
@@ -39,17 +39,19 @@ type Spec struct {
 	Hash    string
 }
 
-// Args is Traefik's static configuration: routes come only from containers that opt in, over the
-// Wings network; plain HTTP redirects to HTTPS (Let's Encrypt's HTTP challenge still answers on it);
-// one ACME resolver named "le". No dashboard or API.
+// Args is Traefik's static configuration: routes come from the files Wings writes (watched, so a
+// change applies at once) and from the labels of containers that opt in, over the Wings network; one
+// ACME resolver named "le", its HTTP challenge on port 80. Plain HTTP is not redirected here, on the
+// entrypoint, but by routes: a catch-all at the lowest priority (BaseRoutes), so a domain that asks
+// for plain HTTP can have it. No dashboard or API.
 func Args(cfg config.ProxyConfiguration, networkName string) []string {
 	args := []string{
 		"--providers.docker=true",
 		"--providers.docker.exposedbydefault=false",
 		"--providers.docker.network=" + networkName,
+		"--providers.file.directory=" + containerDynamicDir,
+		"--providers.file.watch=true",
 		"--entrypoints.web.address=:80",
-		"--entrypoints.web.http.redirections.entrypoint.to=websecure",
-		"--entrypoints.web.http.redirections.entrypoint.scheme=https",
 		"--entrypoints.websecure.address=:443",
 		"--certificatesresolvers.le.acme.storage=/data/acme.json",
 		"--certificatesresolvers.le.acme.httpchallenge=true",
@@ -65,7 +67,14 @@ func Args(cfg config.ProxyConfiguration, networkName string) []string {
 // BuildSpec is the container the configuration asks for. Pure, so it can be tested without Docker.
 func BuildSpec(cfg config.ProxyConfiguration, networkName string) Spec {
 	args := Args(cfg, networkName)
+	mounts := []mount.Mount{
+		{Type: mount.TypeBind, Source: "/var/run/docker.sock", Target: "/var/run/docker.sock", ReadOnly: true},
+		{Type: mount.TypeBind, Source: cfg.DataDir, Target: "/data"},
+		{Type: mount.TypeBind, Source: DynamicDir(cfg), Target: containerDynamicDir, ReadOnly: true},
+	}
 
+	// Everything the container is made from: a node that upgrades Wings gets a new container when
+	// what this build makes differs from what an older one made
 	sum := sha256.New()
 	_ = json.NewEncoder(sum).Encode(struct {
 		Image     string
@@ -74,7 +83,8 @@ func BuildSpec(cfg config.ProxyConfiguration, networkName string) Spec {
 		HTTPSPort int
 		DataDir   string
 		Network   string
-	}{cfg.Image, args, cfg.HTTPPort, cfg.HTTPSPort, cfg.DataDir, networkName})
+		Mounts    []mount.Mount
+	}{cfg.Image, args, cfg.HTTPPort, cfg.HTTPSPort, cfg.DataDir, networkName, mounts})
 	hash := hex.EncodeToString(sum.Sum(nil))[:16]
 
 	return Spec{
@@ -95,10 +105,7 @@ func BuildSpec(cfg config.ProxyConfiguration, networkName string) Spec {
 				"80/tcp":  {{HostPort: strconv.Itoa(cfg.HTTPPort)}},
 				"443/tcp": {{HostPort: strconv.Itoa(cfg.HTTPSPort)}},
 			},
-			Mounts: []mount.Mount{
-				{Type: mount.TypeBind, Source: "/var/run/docker.sock", Target: "/var/run/docker.sock", ReadOnly: true},
-				{Type: mount.TypeBind, Source: cfg.DataDir, Target: "/data"},
-			},
+			Mounts:        mounts,
 			RestartPolicy: container.RestartPolicy{Name: container.RestartPolicyUnlessStopped},
 			LogConfig:     container.LogConfig{Type: "local", Config: map[string]string{"max-size": "5m", "max-file": "1"}},
 			NetworkMode:   container.NetworkMode(networkName),
@@ -115,19 +122,28 @@ type Status struct {
 	Enabled bool   `json:"enabled"`
 	Running bool   `json:"running"`
 	Image   string `json:"image"`
+	// Features is RouteFeatures when the proxy container is the one this build makes, so it routes
+	// from Wings' files; empty otherwise.
+	Features []string `json:"features"`
 }
 
-// State reads the proxy's status. Running is false when Docker cannot be asked.
+// State reads the proxy's status. Running is false, and Features empty, when Docker cannot be asked.
 func State(ctx context.Context) Status {
 	cfg := config.Get().Proxy
-	status := Status{Enabled: cfg.Enabled, Image: cfg.Image}
+	status := Status{Enabled: cfg.Enabled, Image: cfg.Image, Features: []string{}}
 
 	cli, err := environment.Docker()
 	if err != nil {
 		return status
 	}
-	if c, err := cli.ContainerInspect(ctx, cfg.ContainerName); err == nil && c.State != nil {
-		status.Running = c.State.Running
+	if c, err := cli.ContainerInspect(ctx, cfg.ContainerName); err == nil {
+		if c.State != nil {
+			status.Running = c.State.Running
+		}
+		spec := BuildSpec(cfg, config.Get().Docker.Network.Name)
+		if cfg.Enabled && c.Config != nil && c.Config.Labels[SpecLabel] == spec.Hash {
+			status.Features = RouteFeatures
+		}
 	}
 	return status
 }
@@ -157,6 +173,16 @@ func Ensure(ctx context.Context) error {
 		return nil
 	}
 
+	// acme.json is created by Traefik with mode 600; the folder holding it is Wings' (root) only. The
+	// routes' folder in it has to be there before the container that mounts it, and the base routes
+	// in it before Traefik reads them
+	if err := os.MkdirAll(cfg.DataDir, 0o700); err != nil {
+		return errors.WithMessage(err, "proxy: could not create the data directory")
+	}
+	if err := writeBaseRoutes(DynamicDir(cfg)); err != nil {
+		return errors.WithMessage(err, "proxy: could not write the base routes")
+	}
+
 	spec := BuildSpec(cfg, config.Get().Docker.Network.Name)
 
 	if found && existing.Config != nil && existing.Config.Labels[SpecLabel] == spec.Hash {
@@ -172,11 +198,6 @@ func Ensure(ctx context.Context) error {
 		if err := cli.ContainerRemove(ctx, existing.ID, container.RemoveOptions{Force: true}); err != nil {
 			return errors.WithMessage(err, "proxy: could not remove the old container")
 		}
-	}
-
-	// acme.json is created by Traefik with mode 600; the folder holding it is Wings' (root) only
-	if err := os.MkdirAll(cfg.DataDir, 0o700); err != nil {
-		return errors.WithMessage(err, "proxy: could not create the data directory")
 	}
 
 	if _, err := cli.ImageInspect(ctx, cfg.Image); err != nil {

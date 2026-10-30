@@ -316,6 +316,22 @@ func rootCmdRun(cmd *cobra.Command, _ []string) {
 
 	// Wait until all the servers are ready to go before we fire up the SFTP and HTTP servers.
 	pool.StopWait()
+
+	// NextHost: the proxy's routes match what is on the node now - the files of servers no longer
+	// here removed, every other server's written or removed by its state
+	ids := make([]string, 0, manager.Len())
+	for _, s := range manager.All() {
+		ids = append(ids, s.ID())
+	}
+	if removed, err := proxy.PruneServerRoutes(ids); err != nil {
+		log.WithField("error", err).Warn("failed to remove the routes of servers no longer on this node")
+	} else if len(removed) > 0 {
+		log.WithField("files", removed).Info("removed the routes of servers no longer on this node")
+	}
+	for _, s := range manager.All() {
+		s.SyncProxyRoutes()
+	}
+
 	defer func() {
 		// Cancel the context on all the running servers at this point, even though the
 		// program is just shutting down.
@@ -550,12 +566,12 @@ var pelicanRowHues = [6]hue{
 
 var (
 	hueLightCyan = hue{103, 232, 249, 123} // #67E8F9 — W I N G S letters
-	hueTeal      = hue{22, 78, 99, 23}      // #164E63 — rule end caps
-	hueCyan      = hue{34, 211, 238, 51}    // #22D3EE — ▸ accents / URLs
-	hueDim       = hue{107, 114, 128, 243}  // #6B7280 — version / descriptions
-	hueGray      = hue{156, 163, 175, 247}  // #9CA3AF — tagline
-	hueWhite     = hue{244, 244, 245, 255}  // #F4F4F5 — link labels
-	hueYellow    = hue{250, 204, 21, 226}   // #FACC15 — star CTA
+	hueTeal      = hue{22, 78, 99, 23}     // #164E63 — rule end caps
+	hueCyan      = hue{34, 211, 238, 51}   // #22D3EE — ▸ accents / URLs
+	hueDim       = hue{107, 114, 128, 243} // #6B7280 — version / descriptions
+	hueGray      = hue{156, 163, 175, 247} // #9CA3AF — tagline
+	hueWhite     = hue{244, 244, 245, 255} // #F4F4F5 — link labels
+	hueYellow    = hue{250, 204, 21, 226}  // #FACC15 — star CTA
 )
 
 // printLogo renders the wings startup banner once, before log output begins:

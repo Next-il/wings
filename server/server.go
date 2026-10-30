@@ -81,6 +81,9 @@ type Server struct {
 
 	logSink     *system.SinkPool
 	installSink *system.SinkPool
+
+	// proxyMu keeps SyncProxyRoutes calls in order (NextHost).
+	proxyMu sync.Mutex
 }
 
 // New returns a new server instance with a context and all of the default
@@ -294,6 +297,9 @@ func (s *Server) Sync() error {
 
 	s.SyncWithEnvironment()
 
+	// NextHost: a running server's domains apply now, not at its next start
+	s.SyncProxyRoutes()
+
 	// If the server is suspended immediately disconnect all open websocket connections.
 	if s.IsSuspended() {
 		s.Websockets().CancelAll()
@@ -419,6 +425,9 @@ func (s *Server) OnStateChange() {
 	st := s.Environment.State()
 	// Update the currently tracked state for the server.
 	s.resources.State.Store(st)
+
+	// NextHost: the proxy routes the server's domains only while it is starting or running
+	s.SyncProxyRoutes()
 
 	// Emit the event to any listeners that are currently registered.
 	if prevState != s.Environment.State() {

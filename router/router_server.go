@@ -12,6 +12,7 @@ import (
 	"github.com/apex/log"
 	"github.com/gin-gonic/gin"
 	"github.com/pelican/wings/config"
+	"github.com/pelican/wings/proxy"
 	"github.com/pelican/wings/server/filesystem/quotas"
 
 	"github.com/pelican/wings/router/downloader"
@@ -269,6 +270,11 @@ func deleteServer(c *gin.Context) {
 		return
 	}
 
+	// NextHost: the proxy stops routing the server's domains
+	if err := proxy.RemoveServerRoutes(ID); err != nil {
+		log.WithFields(log.Fields{"server_id": ID, "error": err}).Warn("failed to remove the server's routes from the domain proxy")
+	}
+
 	// Once the environment is terminated, remove the server files from the system. This is
 	// done in a separate process since failure is not the end of the world and can be
 	// manually cleaned up after the fact.
@@ -285,24 +291,23 @@ func deleteServer(c *gin.Context) {
 	pool := config.Get().System.Transfers.StoragePool
 	skipFileRemoval := pool.Enabled && pool.PoolName != "" && s.IsTransferring()
 	if !skipFileRemoval {
-	    go func(s *server.Server) {
-	    	fs := s.Filesystem()
-	    	p := fs.Path()
-	    	_ = fs.UnixFS().Close()
-	    	if err := os.RemoveAll(p); err != nil {
-	    		log.WithFields(log.Fields{"path": p, "error": err}).
-	    			Warn("failed to remove server files during deletion process")
-	    	}
+		go func(s *server.Server) {
+			fs := s.Filesystem()
+			p := fs.Path()
+			_ = fs.UnixFS().Close()
+			if err := os.RemoveAll(p); err != nil {
+				log.WithFields(log.Fields{"path": p, "error": err}).
+					Warn("failed to remove server files during deletion process")
+			}
 
-	    	if config.Get().System.Quotas.Enabled {
-	    		if err = quotas.DelQuota(s.Config().Uuid); err != nil {
-	    			log.WithFields(log.Fields{"server_id": s.Config().Pid, "error": err}).
-	    				Warn("failed to remove quota during deletion process")
-	    		}
-	    	}
-	    }(s)
+			if config.Get().System.Quotas.Enabled {
+				if err = quotas.DelQuota(s.Config().Uuid); err != nil {
+					log.WithFields(log.Fields{"server_id": s.Config().Pid, "error": err}).
+						Warn("failed to remove quota during deletion process")
+				}
+			}
+		}(s)
 	}
-
 
 	// remove hanging machine-id file for the server when removing
 	go func(s *server.Server) {

@@ -168,8 +168,10 @@ func (e *Environment) Create() error {
 		}
 	}
 
-	// Merge user-provided labels with system labels. The proxy's labels are Wings' alone: none can come
-	// from the server's own labels, so one server cannot route another's domain.
+	// Merge user-provided labels with system labels. The proxy still reads Traefik labels (from
+	// containers made before its routes came from files), so none can come from the server's own
+	// labels: one server cannot route another's domain. A server's domains are routed by the file
+	// Wings writes for it (proxy.WriteServerRoutes), not by labels.
 	confLabels := environment.StripProxyLabels(e.Configuration.Labels())
 	labels := make(map[string]string, 2+len(confLabels))
 
@@ -178,17 +180,6 @@ func (e *Environment) Create() error {
 	}
 	labels["Service"] = "Pelican"
 	labels["ContainerType"] = "server_process"
-
-	// NextHost: the customer's domains, for the node's proxy - applied when the container is created
-	if cfg.Proxy.Enabled {
-		valid, dropped := environment.ValidDomains(e.Configuration.Domains())
-		for _, d := range dropped {
-			e.log().WithField("domain", d.Domain).WithField("port", d.Port).Warn("not routing an invalid domain")
-		}
-		for key, value := range environment.ProxyLabels(e.Id, cfg.Docker.Network.Name, valid) {
-			labels[key] = value
-		}
-	}
 
 	conf := &container.Config{
 		Hostname:     e.Id,

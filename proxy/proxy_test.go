@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/creasty/defaults"
@@ -67,9 +68,14 @@ func TestBuildSpec(t *testing.T) {
 		t.Fatalf("name/image: %s %s", spec.Name, spec.Config.Image)
 	}
 	for _, arg := range []string{
+		"--providers.docker=true",
 		"--providers.docker.exposedbydefault=false",
 		"--providers.docker.network=pelican_nw",
+		"--providers.file.directory=/etc/traefik/dynamic",
+		"--providers.file.watch=true",
+		"--entrypoints.web.address=:80",
 		"--entrypoints.websecure.address=:443",
+		"--certificatesresolvers.le.acme.httpchallenge=true",
 		"--certificatesresolvers.le.acme.httpchallenge.entrypoint=web",
 		"--certificatesresolvers.le.acme.email=contact@next-il.co.il",
 	} {
@@ -80,6 +86,10 @@ func TestBuildSpec(t *testing.T) {
 	for _, arg := range spec.Config.Cmd {
 		if arg == "--api" || arg == "--api.insecure=true" || arg == "--api.dashboard=true" {
 			t.Errorf("the dashboard/API must not be exposed: %s", arg)
+		}
+		// HTTP to HTTPS is a route now (BaseRoutes), so a domain can ask for plain HTTP
+		if strings.HasPrefix(arg, "--entrypoints.web.http.redirections") {
+			t.Errorf("no entrypoint redirect: %s", arg)
 		}
 	}
 
@@ -102,6 +112,13 @@ func TestBuildSpec(t *testing.T) {
 	}
 	if data.Source != "/var/lib/pelican/proxy" || data.Target != "/data" || data.ReadOnly {
 		t.Errorf("data mount %+v", data)
+	}
+	if len(spec.Host.Mounts) != 3 {
+		t.Fatalf("mounts %+v", spec.Host.Mounts)
+	}
+	routes := spec.Host.Mounts[2]
+	if routes.Type != mount.TypeBind || routes.Source != "/var/lib/pelican/proxy/dynamic" || routes.Target != "/etc/traefik/dynamic" || !routes.ReadOnly {
+		t.Errorf("routes mount %+v", routes)
 	}
 	if spec.Config.Labels[SpecLabel] != spec.Hash || spec.Hash == "" {
 		t.Errorf("spec label %v", spec.Config.Labels)
@@ -126,6 +143,12 @@ func TestSpecHashFollowsTheSettings(t *testing.T) {
 	changed.Image = "traefik:v3.7.16"
 	if BuildSpec(changed, "pelican_nw").Hash == base {
 		t.Error("a new image must recreate the container")
+	}
+
+	changed = cfg
+	changed.DataDir = "/srv/proxy"
+	if BuildSpec(changed, "pelican_nw").Hash == base {
+		t.Error("a new data folder (and so routes folder) must recreate the container")
 	}
 
 	// Turning it on or off is not a change to the container itself
