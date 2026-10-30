@@ -26,6 +26,8 @@ import (
 //     given, only its folders named there, each where it says (App.Storage).
 //   - Docker's own capability set, without the ones that matter for breaking out or spoofing
 //     (AppCapDrop) - an image's entrypoint that switches user or chowns its files still works.
+//   - Every port is unprivileged in its network namespace (net.ipv4.ip_unprivileged_port_start=0,
+//     not on the host's network), so an image whose USER is not root can listen on port 80.
 //   - Wings does not chown the folder to its own user before each start: the files belong to
 //     whichever user the image runs as.
 //

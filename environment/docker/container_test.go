@@ -4,10 +4,31 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/mount"
 
 	"github.com/pelican/wings/environment"
 )
+
+func TestAppSysctls(t *testing.T) {
+	app := &environment.App{Enabled: true}
+	want := map[string]string{"net.ipv4.ip_unprivileged_port_start": "0"}
+
+	for _, mode := range []container.NetworkMode{"pelican_nw", "ip-10-0-0-1", "bridge", "default"} {
+		if got := appSysctls(app, mode); !reflect.DeepEqual(got, want) {
+			t.Errorf("%s: %v, want %v", mode, got, want)
+		}
+	}
+	if got := appSysctls(app, "host"); got != nil {
+		t.Errorf("on the host's network it would be the host's setting: %v", got)
+	}
+	if got := appSysctls(nil, "pelican_nw"); got != nil {
+		t.Errorf("a server that is not an app keeps the default: %v", got)
+	}
+	if got := appSysctls(&environment.App{Enabled: false}, "pelican_nw"); got != nil {
+		t.Errorf("enabled false is not an app: %v", got)
+	}
+}
 
 func TestConvertMounts(t *testing.T) {
 	id := "8f2c1a9b-0000-4000-8000-000000000000"

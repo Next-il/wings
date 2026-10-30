@@ -272,6 +272,7 @@ func (e *Environment) Create() error {
 		SecurityOpt:    []string{"no-new-privileges"},
 		ReadonlyRootfs: !app.IsEnabled(),
 		CapDrop:        capDrop(app),
+		Sysctls:        appSysctls(app, networkMode),
 		NetworkMode:    networkMode,
 		UsernsMode:     container.UsernsMode(cfg.Docker.UsernsMode),
 	}
@@ -559,6 +560,16 @@ func (e *Environment) ensureAppVolume(ctx context.Context) error {
 		return errors.Wrap(err, "environment/docker: failed to create the app's volume")
 	}
 	return nil
+}
+
+// appSysctls lets an app's image listen on a port under 1024 (80, say) as a user that is not root:
+// in its own network namespace, every port is unprivileged. Nothing for a server that is not an app,
+// or one on the host's network, where it would be the host's setting.
+func appSysctls(app *environment.App, mode container.NetworkMode) map[string]string {
+	if !app.IsEnabled() || mode.IsHost() {
+		return nil
+	}
+	return map[string]string{"net.ipv4.ip_unprivileged_port_start": "0"}
 }
 
 // capDrop is what a server's container drops from Docker's default capabilities: everything that a
