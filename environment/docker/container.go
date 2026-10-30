@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"maps"
 	"runtime"
 	"strconv"
 	"strings"
@@ -17,6 +18,8 @@ import (
 	dockerImage "github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/api/types/network"
+	"github.com/docker/docker/api/types/versions"
+	"github.com/docker/docker/api/types/volume"
 	"github.com/docker/docker/client"
 
 	"github.com/pelican/wings/config"
@@ -168,8 +171,10 @@ func (e *Environment) Create() error {
 		}
 	}
 
-	// Merge user-provided labels with system labels. The proxy's labels are Wings' alone: none can come
-	// from the server's own labels, so one server cannot route another's domain.
+	// Merge user-provided labels with system labels. The proxy still reads Traefik labels (from
+	// containers made before its routes came from files), so none can come from the server's own
+	// labels: one server cannot route another's domain. A server's domains are routed by the file
+	// Wings writes for it (proxy.WriteServerRoutes), not by labels.
 	confLabels := environment.StripProxyLabels(e.Configuration.Labels())
 	labels := make(map[string]string, 2+len(confLabels))
 
@@ -178,17 +183,6 @@ func (e *Environment) Create() error {
 	}
 	labels["Service"] = "Pelican"
 	labels["ContainerType"] = "server_process"
-
-	// NextHost: the customer's domains, for the node's proxy - applied when the container is created
-	if cfg.Proxy.Enabled {
-		valid, dropped := environment.ValidDomains(e.Configuration.Domains())
-		for _, d := range dropped {
-			e.log().WithField("domain", d.Domain).WithField("port", d.Port).Warn("not routing an invalid domain")
-		}
-		for key, value := range environment.ProxyLabels(e.Id, cfg.Docker.Network.Name, valid) {
-			labels[key] = value
-		}
-	}
 
 	conf := &container.Config{
 		Hostname:     e.Id,
@@ -278,8 +272,14 @@ func (e *Environment) Create() error {
 		SecurityOpt:    []string{"no-new-privileges"},
 		ReadonlyRootfs: !app.IsEnabled(),
 		CapDrop:        capDrop(app),
+		Sysctls:        appSysctls(app, networkMode),
 		NetworkMode:    networkMode,
 		UsernsMode:     container.UsernsMode(cfg.Docker.UsernsMode),
+	}
+
+	// NextHost: an app's volumes and files are mounted through a volume of the server's folder
+	if err := e.ensureAppVolume(ctx); err != nil {
+		return err
 	}
 
 	var netConf *network.NetworkingConfig = nil //In case when no networking config is needed set nil
@@ -325,11 +325,17 @@ func (e *Environment) Destroy() error {
 	// exist on the system. We're just a step ahead of ourselves in that case.
 	//
 	// @see https://github.com/pterodactyl/panel/issues/2001
-	if err != nil && client.IsErrNotFound(err) {
-		return nil
+	if err != nil && !client.IsErrNotFound(err) {
+		return err
 	}
 
-	return err
+	// NextHost: the volume an app's storage was mounted through. Only Docker's record of it goes:
+	// the files are in the server's folder
+	if err := e.client.VolumeRemove(context.Background(), environment.AppVolumeName(e.Id), false); err != nil && !client.IsErrNotFound(err) {
+		e.log().WithField("error", err).Warn("failed to remove the app's volume")
+	}
+
+	return nil
 }
 
 // SendCommand sends the specified command to the stdin of the running container
@@ -477,6 +483,23 @@ func (e *Environment) convertMounts() []mount.Mount {
 	mounts := e.Configuration.Mounts()
 	out := make([]mount.Mount, len(mounts))
 	for i, m := range mounts {
+		// NextHost: a path inside the server's folder (an app's volume or file) is a subpath of the
+		// folder's volume, which Docker resolves inside the folder - a bind mount of it would follow
+		// a symlink the customer put there out to the host
+		if m.Subpath != "" {
+			out[i] = mount.Mount{
+				Type:     mount.TypeVolume,
+				Source:   environment.AppVolumeName(e.Id),
+				Target:   m.Target,
+				ReadOnly: m.ReadOnly,
+				VolumeOptions: &mount.VolumeOptions{
+					// Nothing from the image is copied in: it is the customer's folder, as a bind would be
+					NoCopy:  true,
+					Subpath: m.Subpath,
+				},
+			}
+			continue
+		}
 		out[i] = mount.Mount{
 			Type:     mount.TypeBind,
 			Source:   m.Source,
@@ -485,6 +508,68 @@ func (e *Environment) convertMounts() []mount.Mount {
 		}
 	}
 	return out
+}
+
+// appVolumeOptions are the local driver's options for the volume of an app's server folder.
+func appVolumeOptions(folder string) map[string]string {
+	return map[string]string{"type": "none", "o": "bind", "device": folder}
+}
+
+// ensureAppVolume makes the Docker volume an app's volumes and files are mounted through
+// (environment.AppVolumeName): the server's folder, bound. Nothing to do for a server without any.
+// Subpaths of a volume need Docker Engine 26 (API 1.45): an older engine would ignore the subpath
+// and mount the whole folder, so it is refused. A volume of that name made for another folder is
+// refused too, rather than removed: removing a bound volume is not something to risk on a folder.
+func (e *Environment) ensureAppVolume(ctx context.Context) error {
+	folder := ""
+	for _, m := range e.Configuration.Mounts() {
+		if m.Subpath != "" {
+			folder = m.Source
+			break
+		}
+	}
+	if folder == "" {
+		return nil
+	}
+
+	if v := e.client.ClientVersion(); versions.LessThan(v, "1.45") {
+		return errors.Errorf("environment/docker: an app's volumes and files need Docker Engine 26 or newer (API 1.45), this one speaks API %s", v)
+	}
+
+	name := environment.AppVolumeName(e.Id)
+	opts := appVolumeOptions(folder)
+	if v, err := e.client.VolumeInspect(ctx, name); err == nil {
+		if v.Driver == "local" && maps.Equal(v.Options, opts) {
+			return nil
+		}
+		return errors.Errorf("environment/docker: the volume %s exists but is not the server's folder %s - remove it (docker volume rm %s) and start again", name, folder, name)
+	} else if !client.IsErrNotFound(err) {
+		return errors.Wrap(err, "environment/docker: failed to inspect the app's volume")
+	}
+
+	if _, err := e.client.VolumeCreate(ctx, volume.CreateOptions{
+		Name:       name,
+		Driver:     "local",
+		DriverOpts: opts,
+		Labels: map[string]string{
+			"Service":         "NextHost",
+			"ContainerType":   "app_storage",
+			"nexthost.server": e.Id,
+		},
+	}); err != nil {
+		return errors.Wrap(err, "environment/docker: failed to create the app's volume")
+	}
+	return nil
+}
+
+// appSysctls lets an app's image listen on a port under 1024 (80, say) as a user that is not root:
+// in its own network namespace, every port is unprivileged. Nothing for a server that is not an app,
+// or one on the host's network, where it would be the host's setting.
+func appSysctls(app *environment.App, mode container.NetworkMode) map[string]string {
+	if !app.IsEnabled() || mode.IsHost() {
+		return nil
+	}
+	return map[string]string{"net.ipv4.ip_unprivileged_port_start": "0"}
 }
 
 // capDrop is what a server's container drops from Docker's default capabilities: everything that a

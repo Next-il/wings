@@ -227,6 +227,9 @@ func (s *Server) onBeforeStart() error {
 		if err := os.Chmod(s.Filesystem().Path(), 0o777); err != nil {
 			return errors.WithMessage(err, "failed to open the app's folder to its image user")
 		}
+		if err := s.prepareAppStorage(); err != nil {
+			return err
+		}
 	} else if config.Get().System.CheckPermissionsOnBoot {
 		s.PublishConsoleOutputFromDaemon("Ensuring file permissions are set correctly, this could take a few seconds...")
 		// Ensure all the server file permissions are set correctly before booting the process.

@@ -31,6 +31,12 @@ type Mount struct {
 	// Whether the directory is being mounted as read-only. It is up to the environment to
 	// handle this value correctly and ensure security expectations are met with its usage.
 	ReadOnly bool `json:"read_only"`
+
+	// Subpath is NextHost's, for an app's volumes and files (AppStorage): a path inside Source, the
+	// server's folder, mounted instead of Source itself. Docker mounts it through a volume of Source
+	// (AppVolumeName) and resolves it inside that, so a symlink there never leads out of the folder.
+	// Never read from JSON.
+	Subpath string `json:"-"`
 }
 
 // Limits is the build settings for a given server that impact docker container

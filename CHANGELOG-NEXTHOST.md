@@ -2,6 +2,77 @@
 
 Changes on top of the upstream base named in UPSTREAM.md. Each section is the body of its GitHub release.
 
+## v1.0.0-rc.1.nh.5 (unreleased)
+
+- **Domain routes from files, applied live:** Wings no longer labels a server's container for Traefik.
+  It writes one file per server, `<proxy data_dir>/dynamic/<server uuid>.yml` (by default
+  `/var/lib/pelican/proxy/dynamic/`), which the proxy watches.
+  - The file is written when the server starts, and again every time NextHost calls the server's sync
+    endpoint (`POST /api/servers/:server/sync`) while it runs: a domain change applies a few seconds
+    after the sync, without restarting the server. It is removed when the server stops or is deleted, or
+    has no domains left. At boot Wings removes the files of servers that are no longer on the node.
+  - Router and service names are `nh-<server uuid>-<n>` (the whole uuid now), with `-http`, `-https`,
+    `-strip` and `-prefix` for an entry's plain HTTP router and its middlewares.
+- **Domain options:** every new field is optional. An entry with only `domain` and `port` works as before:
+  HTTPS with a Let's Encrypt certificate on the whole host, plain HTTP redirected to it.
+
+  ```json
+  "domains": [{ "domain": "example.com", "port": 8443, "path": "/api", "strip_path": true,
+                "http_only": false, "scheme": "https", "dest_path": "/v1" }]
+  ```
+
+  - `path`: the URL path prefix the entry matches, `/` when empty. It starts with `/`, is at most 200
+    characters of letters, digits and `-._~!$&()*+,;=:@%/`, and has no empty, `.` or `..` part.
+  - `strip_path`: take `path` off the request before it reaches the app.
+  - `http_only`: serve the entry on plain HTTP only - no certificate, no redirect to HTTPS.
+  - `scheme`: how the proxy talks to the app, `http` (default) or `https` for an app that serves TLS
+    itself. Its certificate is not checked, so a self-signed one works.
+  - `dest_path`: a prefix put in front of the path (after `strip_path`) before the request reaches the
+    app. `""` or `/` for none.
+  - An invalid entry, or a second entry for the same domain and path, is dropped with a warning in the
+    Wings log. It never fails a start.
+- **The proxy:** Traefik also reads the routes folder (mounted read-only at `/etc/traefik/dynamic`,
+  watched). Plain HTTP is no longer redirected on the entrypoint: `_nexthost.yml` in the same folder
+  redirects every host to HTTPS at the lowest priority, so only `http_only` entries stay on HTTP. Let's
+  Encrypt's HTTP challenge on port 80 works as before. The Docker provider stays on, so a container made
+  by nh.3 or nh.4 keeps its label routes until its next start recreates it without labels.
+  - Upgrading recreates the proxy container once (its settings changed), so domains are down for a few
+    seconds while Wings boots.
+- `GET /api/system` reports `proxy.features`: `["paths", "http-only", "scheme", "live"]` when the running
+  proxy container is the one this build makes, `[]` otherwise.
+- **App storage:** an app can name its storage instead of taking the whole server folder at `data_path`:
+
+  ```json
+  "app": {
+    "enabled": true,
+    "volumes": [{ "name": "data", "target": "/data" }],
+    "files": [{ "name": "config", "target": "/app/config.json", "content": "<base64>", "mode": 420 }]
+  }
+  ```
+
+  - No `volumes` key (or `null`) keeps the nh.4 layout. A `volumes` list, even an empty one, replaces it:
+    the server folder itself is not mounted, and each volume is the folder `<server folder>/<name>`,
+    created when missing and opened to the image's user (0777), mounted read-write at `target`.
+  - Each file is written to `<server folder>/.files/<name>` before every start (base64 `content`, `mode`
+    as a number, 0644 when 0) and mounted read-only at `target`, a file path. Files no longer listed are
+    removed from `.files`. Files work with either layout.
+  - Names are 1-40 of `a-z 0-9 - _`, starting with a letter or digit, unique among volumes and among
+    files. A target is a clean absolute path, not `/` or one of `/bin /boot /dev /etc /lib /lib32 /lib64
+    /libx32 /proc /run /sbin /sys /tmp /usr /var/run` itself, and nothing under `/proc`, `/sys` or `/dev`
+    (`/etc/nginx/conf.d/default.conf` is fine). No two volumes or files share a target, and none takes
+    the folder's or another mount's. At most 10 volumes and 20 files, 256 KiB per file. An invalid entry
+    is dropped with a warning in the Wings log and the server console; it never fails a start.
+  - Volumes and files are mounted as subpaths of one Docker volume of the server folder
+    (`nexthost-app-<server uuid>`, local driver bound to the folder), not as bind mounts: a customer can
+    put a symlink in the folder over SFTP, and a bind mount would follow it on the host. Docker resolves a
+    subpath inside the folder. This needs Docker Engine 26 or newer (API 1.45); on an older engine an app
+    with volumes or files does not start. The volume is removed with the server. A symlink where a
+    volume's folder goes fails the start; one where a file goes is replaced by the file.
+  - `app-storage` added to the features list (header and `/api/system`).
+- **Port 80 for non-root images:** an app container gets `net.ipv4.ip_unprivileged_port_start=0`, so an
+  image whose `USER` is not root can listen on 80 (or any port under 1024) inside. Not set on the host's
+  network.
+
 ## v1.0.0-rc.1.nh.4
 
 - **App servers:** a server can run an application image - one NextHost built on the node from the

@@ -21,21 +21,39 @@ type Mount environment.Mount
 // that approach to just setting `TZ=Timezone` environment values in containers which should work
 // in most scenarios.
 func (s *Server) Mounts() []environment.Mount {
-	// NextHost: an app keeps its folder where it asks for it, and its image's own /etc/passwd
+	// NextHost: an app keeps its folder where it asks for it - or only its volumes, each where it
+	// asks - and its files, and its image's own /etc/passwd
 	app := s.Config().App
-	target := "/home/container"
 	if app.IsEnabled() {
-		target = app.MountPath()
+		others := s.systemMounts(app)
+		storage, _ := s.appStorage(app, others)
+		return append(storage.Mounts(s.Filesystem().Path()), others...)
 	}
 
 	m := []environment.Mount{
 		{
 			Default:  true,
-			Target:   target,
+			Target:   "/home/container",
 			Source:   s.Filesystem().Path(),
 			ReadOnly: false,
 		},
 	}
+	return append(m, s.systemMounts(app)...)
+}
+
+// appStorage is what of an app's storage is mounted (environment.App.Storage), next to others.
+func (s *Server) appStorage(app *environment.App, others []environment.Mount) (environment.AppStorage, []environment.AppStorageProblem) {
+	taken := make([]string, len(others))
+	for i, m := range others {
+		taken[i] = m.Target
+	}
+	return app.Storage(taken...)
+}
+
+// systemMounts are a server's mounts besides its own folder: /etc/passwd and /etc/group (not for an
+// app), the machine-id, and the custom mounts.
+func (s *Server) systemMounts(app *environment.App) []environment.Mount {
+	var m []environment.Mount
 
 	if config.Get().System.User.Passwd.Enable && !app.IsEnabled() {
 		passwdMount := environment.Mount{
