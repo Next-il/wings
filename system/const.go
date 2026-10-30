@@ -9,7 +9,10 @@ var Version = "develop"
 //
 //   - container-ports: allocations.container_ports in a server's configuration
 //   - shell: the staff shell socket at /api/servers/:server/shell
-var Features = []string{"container-ports", "shell", "domains"}
+//   - domains: a server's domains, routed by the node's proxy (GET /api/system's proxy.features
+//     says which domain options it takes)
+//   - app-storage: app.volumes and app.files in a server's configuration
+var Features = []string{"container-ports", "shell", "domains", "app-storage"}
 
 // FeaturesHeader is the request header Features is sent in, comma separated.
 const FeaturesHeader = "X-NextHost-Features"

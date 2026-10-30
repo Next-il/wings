@@ -362,6 +362,11 @@ func (s *Server) CreateEnvironment() error {
 		}
 	}
 
+	// NextHost: an app's volumes and files are mounted from paths that have to be there
+	if err := s.prepareAppStorage(); err != nil {
+		return err
+	}
+
 	return s.Environment.Create()
 }
 
