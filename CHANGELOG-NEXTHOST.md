@@ -2,7 +2,7 @@
 
 Changes on top of the upstream base named in UPSTREAM.md. Each section is the body of its GitHub release.
 
-## v1.0.0-rc.1.nh.6 (unreleased)
+## v1.0.0-rc.1.nh.6
 
 - **The proxy starts:** its container asked for Docker's `local` log driver with one log file and
   compression left on (the driver's default), which Docker refuses: the container could never start
