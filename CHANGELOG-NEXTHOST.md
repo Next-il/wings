@@ -2,7 +2,7 @@
 
 Changes on top of the upstream base named in UPSTREAM.md. Each section is the body of its GitHub release.
 
-## v1.0.0-rc.1.nh.5 (unreleased)
+## v1.0.0-rc.1.nh.5
 
 - **Domain routes from files, applied live:** Wings no longer labels a server's container for Traefik.
   It writes one file per server, `<proxy data_dir>/dynamic/<server uuid>.yml` (by default
